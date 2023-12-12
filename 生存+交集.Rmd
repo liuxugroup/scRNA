@@ -1,0 +1,894 @@
+---
+title: "生存"
+output: html_document
+date: "2023-07-16"
+---
+#基本参数----
+  #Surv(PFStime,PFS)
+  ZL：PFStime,PFS
+  CYP:
+    DMFStime,DMFS
+    LRRFStime,LRRFS
+    OStime,OS
+    DFStime,DFS
+  LY：
+    DMFStime,DMFS
+    LRRFStime,LRRFS
+    OStime,OS
+    FFStime,FFS
+  XD：
+    colnames(meta)
+    FFStime,FFS
+    LRRFStime,LRRFS
+    OStime,OS
+    DMFStime,DMFS
+ 
+    
+  
+  
+  
+#导入数据 llm----
+```{r setup}
+
+#输入矩阵
+
+##输入表型信息，分组
+clinical =read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/17\ 原发复发预后.txt',header = T,sep = '\t')
+rownames(clinical)=clinical[,2]
+clinical_data=read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/表型.txt',header = T,sep = '\t')
+## 导入基因ID转化信息(仅保留编码基因)
+ft <- read.csv('/Users/louliming/Desktop/生信/基因集/feature.csv', header = T)
+ft <- as.data.frame(filter(ft, ft$gene_biotype=='protein_coding'))
+
+##输入count
+rawcount =read.table('/Users/louliming/Desktop/原发复发数据/02矩阵合集/公司原始ensg\ count.txt',header = T,sep = '\t')  #'data.txt'是文件名
+rawcount$id <- ft$Symbol[match(rawcount$id, ft$ensembl_gene_id)]#注释
+rawcount=rawcount[!duplicated(rawcount$id),] %>% na.omit()#count去重去na
+rownames(rawcount)=rawcount[,1]
+rawcount=rawcount[,-1]
+names(rawcount) <-clinical_data$sample_name#根据某一列修改列名
+range(rawcount)
+#rawcount <- rawcount[apply(rawcount,1,sd)>0.5,] #质量控制！
+
+##输入tpm
+rawtpm=read.table('/Users/louliming/Desktop/原发复发数据/02矩阵合集/公司原始ensg\ tpm.txt',header = T,sep = '\t')
+rawtpm$id <- ft$Symbol[match(rawtpm$id, ft$ensembl_gene_id)]#注释
+rawtpm=rawtpm[!duplicated(rawtpm$id),] %>% na.omit()#tpm去重去na
+rownames(rawtpm)=rawtpm[,1]
+rawtpm=rawtpm[,-1]
+names(rawtpm) <-clinical_data$sample_name
+range(rawtpm)
+#rawtpm <- rawtpm[apply(rawtpm,1,sd)>0.5,] #质量控制！总表达大于50%
+rawtpm = rawtpm[rowSums(rawtpm)>0,] #去除所有样本表达为0的基因
+#rawtpm = rawtpm[apply(rawtpm, 1, function(x) sum(x > 0) > 0.5*ncol(rawtpm)),]#一半以上样本表达
+
+#筛选样本
+#1,筛选出配对
+clinical_data=clinical_data[order(clinical_data$sample),] 
+group_list=clinical_data[which(clinical_data$event=='relapse'),]
+count=rawcount[,group_list$sample_name]#提取筛选后的的count矩阵
+tpm=rawtpm[,group_list$sample_name]#提取筛选后的的tpm矩阵
+
+LLMclinical_data <- clinical_data
+LLMtpm <- tpm
+
+meta <- clinical
+exprSet <- tpm
+```
+
+#导入数据 cyp----
+```{r cars}
+
+
+#https://blog.csdn.net/Ayue0616/article/details/131009335
+#https://blog.csdn.net/Ayue0616/article/details/131009363
+
+#输入矩阵
+clinical_data =read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/陈雨沛/cyp\ 临床信息.txt',header = T,sep = '\t')
+rownames(clinical_data)=clinical_data[,2]
+tpm=read.csv('/Users/louliming/Desktop/原发复发数据/00工作文件夹/陈雨沛/gene_exp_cohort\ 1.csv', header = F)
+colnames(tpm)=tpm[1,]
+rownames(tpm)=tpm[,1]
+tpm = tpm[-1,]
+tpm=tpm[,-1]
+names(tpm) <-clinical_data$AdmitID#根据某一列修改列名
+
+
+#整理临床信息：meta的每一行与exprSet每一列一一对应
+s = intersect(rownames(clinical_data),colnames(tpm));length(s)
+tpm = tpm[,s]
+clinical_data = clinical_data[s,]
+dim(tpm)
+dim(clinical_data)
+identical(rownames(clinical_data),colnames(tpm))
+
+#生存 参数输入
+#总思路：把基因表达值高低分组，挑选高组、低组各做“治疗、对照”对终点的关系
+#设置参数
+
+CYPclinical_data <- clinical_data
+CYPtpm <- tpm
+
+meta <- clinical_data
+colnames(meta)
+exprSet <- as.data.frame(tpm)
+ref_vec ="high" #要看表达高的还是低的
+```
+
+#导入数据 zl----
+
+```{r cars}
+
+
+#https://blog.csdn.net/Ayue0616/article/details/131009335
+#https://blog.csdn.net/Ayue0616/article/details/131009363
+
+#输入矩阵
+zl <- read.table("/Users/louliming/Desktop/HSY/GSE102349_NPC_mRNA_processed_zl.txt", header = T, sep = '\t')
+zl=zl[!duplicated(zl$Gene_Symbol),] %>% na.omit()
+rownames(zl) <- zl$Gene_Symbol
+zl <- zl[,-1]
+zl = zl[apply(zl, 1, function(x) sum(x > 0) > 0.5*ncol(zl)),]#一半以上样本表达
+tpm = zl
+library(readxl)
+clinical_data <- read_excel("/Users/louliming/Desktop/HSY/metadata_zl.xlsx",sheet = 1, col_names = TRUE)
+rownames(clinical_data) <- clinical_data$Sample_description
+
+
+#整理临床信息：meta的每一行与exprSet每一列一一对应
+s = intersect(rownames(clinical_data),colnames(tpm));length(s)
+tpm = tpm[,s]
+clinical_data = clinical_data[s,]
+rownames(clinical_data) <- clinical_data$Sample_description
+dim(tpm)
+dim(clinical_data)
+identical(rownames(clinical_data),colnames(tpm))
+
+#生存 参数输入
+#总思路：把基因表达值高低分组，挑选高组、低组各做“治疗、对照”对终点的关系
+#设置参数
+ZLclinical_data <- clinical_data
+ZLtpm <- tpm
+
+meta <- clinical_data
+exprSet <- tpm
+ref_vec ="high" #要看表达高的还是低的
+
+```
+
+#导入数据 信达----
+
+```{r cars}
+
+##输入表型信息，分组
+clinical_data <-read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/信达/0822\ 新\ metadata.txt',header = T,sep = '\t')
+## 导入基因ID转化信息(仅保留编码基因)
+ft <- read.csv('/Users/louliming/Desktop/生信/基因集/feature.csv', header = T)
+ft <- filter(ft, ft$gene_biotype=='protein_coding')
+##输入count
+rawcount <- read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/信达/rawcounts.txt',header = T,sep = '\t')  #'data.txt'是文件名
+rawcount$id <- ft$Symbol[match(rawcount$id, ft$ensembl_gene_id)]#注释
+rawcount=rawcount[!duplicated(rawcount$id),] %>% na.omit()#count去重去na
+rownames(rawcount)=rawcount[,1]
+rawcount=rawcount[,-1]
+names(rawcount) <-clinical_data$newnames#根据某一列修改列名
+range(rawcount)
+#质控
+#count <- rawcount[apply(rawcount,1,sd)>0.5,] 
+count = rawcount[rowSums(rawcount)>0,] #去除所有样本表达为0的基因
+#count = rawcount[apply(rawcount, 1, function(x) sum(x > 0) > 0.5*ncol(rawcount)), ]#一半以上样本表达
+nrow(count)
+
+##输入tpm
+tpm=log2(edgeR::cpm(count)+1)
+tpm[1:4,1:4]
+
+#整理临床信息：meta的每一行与exprSet每一列一一对应
+rownames(clinical_data) <- clinical_data$newnames
+s = intersect(rownames(clinical_data),colnames(count));length(s)
+count = count[,s]
+clinical_data = clinical_data[s,]
+dim(count)
+dim(clinical_data)
+identical(rownames(clinical_data),colnames(count))
+
+#生存 参数输入
+#总思路：把基因表达值高低分组，挑选高组、低组各做“治疗、对照”对终点的关系
+#设置参数
+XDclinical_data <- clinical_data
+XDtpm <- tpm
+
+meta <- clinical_data
+exprSet<-tpm
+
+#提取不同疗法的亚组 试验组
+meta <- meta[meta$group.x == "sintilimab", ]
+col_names <- colnames(tpm)
+filtered_cols <- col_names[substr(col_names, 6, 6) == "E"]
+exprSet <- tpm[,filtered_cols]
+##tpm <-tpm[,filtered_cols]
+identical(rownames(meta),colnames(exprSet))
+
+#提取不同疗法的亚组 对照组
+meta <- meta[meta$group.x == "standard", ]
+col_names <- colnames(tpm)
+filtered_cols <- col_names[substr(col_names, 6, 6) == "C"]
+exprSet <- tpm[,filtered_cols]
+##tpm <-tpm[,filtered_cols]
+identical(rownames(meta),colnames(exprSet))
+
+
+#记得改事件和事件时间OStime,OS
+#记得改文件名
+
+#save(LLMtpm,LLMclinical_data,CYPclinical_data,CYPtpm,ZLtpm,ZLclinical_data,XDtpm,XDclinical_data,file='生存+交集原始数据.Rdata')
+```
+
+#导入数据ly----
+```{r cars}
+
+
+#https://blog.csdn.net/Ayue0616/article/details/131009335
+#https://blog.csdn.net/Ayue0616/article/details/131009363
+
+#输入矩阵
+clinical_data =read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/雷媛/metadata_ly.txt',header = T,sep = '\t')
+tpm<- read.table("/Users/louliming/Desktop/原发复发数据/00工作文件夹/雷媛/HTA_mRNA_GeneName_median_ly.txt", header = T, sep = '\t')
+rownames(clinical_data)=clinical_data[,1]
+rownames(tpm)=tpm[,1]
+tpm=tpm[,-1]
+
+
+
+#整理临床信息：meta的每一行与exprSet每一列一一对应
+s = intersect(rownames(clinical_data),colnames(tpm));length(s)
+tpm = tpm[,s]
+clinical_data = clinical_data[s,]
+dim(tpm)
+dim(clinical_data)
+identical(rownames(clinical_data),colnames(tpm))
+
+
+meta <- clinical_data
+colnames(meta)
+exprSet <- as.data.frame(tpm)
+ref_vec ="high" #要看表达高的还是低的
+```
+
+
+#免疫浸润----
+
+```{r cars}
+
+#加载R包
+# options("repDFS"= c(CRAN="https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))
+# options(BioC_mirror="http://mirrors.tuna.tsinghua.edu.cn/bioconductor/")
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+depens<-c('tibble', 'survival', 'survminer', 'sva', 'limma', "DESeq2","devtools",
+          'limSolve', 'GSVA', 'e1071', 'preprocessCore', 'ggplot2', "biomaRt",
+          'ggpubr', "devtools", "tidyHeatmap", "caret", "glmnet", "ppcor", "timeROC","pracma")
+for(i in 1:length(depens)){
+  depen<-depens[i]
+  if (!requireNamespace(depen, quietly = TRUE))
+    BiocManager::install(depen,update = FALSE)
+}
+
+if (!requireNamespace("IOBR", quietly = TRUE))
+  devtools::install_github("IOBR/IOBR")
+
+library(IOBR)
+
+
+
+#代码免疫浸润
+# 数据处理
+logtpm <- log2(tpm+0.1)
+#logtpm <- logtpm[apply(logtpm,1,sd)>0.5,]
+logtpm[1:4,1:4]
+dim(logtpm)
+
+# MCPcounter
+im_mcpcounter <- deconvo_tme(eset = logtpm,
+                             method = "mcpcounter")
+# EPIC
+im_epic <- deconvo_tme(eset = logtpm,
+                       method = "epic",
+                       arrays = F)
+
+# xCell
+im_xcell <- deconvo_tme(eset = logtpm,
+                        method = "xcell",
+                        arrays = F)
+
+# CIBERSORT
+im_cibersort <- deconvo_tme(eset = logtpm,
+                            method = "cibersort",
+                            arrays = F,
+                            perm = 1000)
+
+# IPS
+im_ips <- deconvo_tme(eset = logtpm,
+                      method = "ips",
+                      plot = F)
+
+# quanTIseq
+im_quantiseq <- deconvo_tme(eset = logtpm,
+                            method = "quantiseq",
+                            scale_mrna = T)
+
+# ESTIMATE
+im_estimate <- deconvo_tme(eset = logtpm,
+                           method = "estimate")
+
+
+# TIMER
+im_timer <- deconvo_tme(eset = logtpm
+                        ,method = "timer"
+                        ,group_list = rep("coad",dim(logtpm)[2]))
+
+
+#数据合并
+tme_combine <- im_mcpcounter %>% 
+  inner_join(im_epic, by="ID") %>% 
+  inner_join(im_xcell, by="ID") %>% 
+  inner_join(im_cibersort, by="ID") %>% 
+  inner_join(im_ips, by= "ID") %>% 
+  inner_join(im_quantiseq, by="ID") %>% 
+  inner_join(im_estimate, by= "ID") %>% 
+  inner_join(im_timer, by= "ID")
+
+tme_combine[1:4,1:4]
+dim(tme_combine)
+
+
+## 基于ssGSEA计算免疫浸润分数
+load("/Users/louliming/Desktop/原发复发数据/03评价免疫微环境/ssGSEA28.Rdata")
+im_ssgsea <- calculate_sig_score(eset = logtpm
+                                 , signature = cellMarker # 这个28种细胞的文件需要自己准备
+                                 , method = "ssgsea" # 选这个就好了
+)
+im_ssgsea[1:4,1:4]
+
+tme_combine <- tme_combine %>% 
+  inner_join(im_ssgsea, by = "ID")
+
+#自己的ssgsea----
+#https://mp.weixin.qq.com/s/6Y44sz_faS9dsCznJX6SzA
+library(GSVA)
+library(limma)
+library(GSEABase)
+symbol=as.matrix(tpm)
+exp_data=symbol
+dimnames=list(rownames(exp_data),colnames(exp_data))
+exp_data1=matrix(as.numeric(as.matrix(exp_data)),nrow=nrow(exp_data),dimnames=dimnames)
+exp_data1=avereps(exp_data1)
+exp_data1=exp_data1[rowMeans(exp_data1)>0,]
+geneSet=getGmt("/Users/louliming/Desktop/原发复发数据/03评价免疫微环境/Trm实验/ICOSTreg.gmt", geneIdType=SymbolIdentifier())#读取我们所提供的免疫细胞基因文件
+geneSet=getGmt("/Users/louliming/Desktop/生信/代码/metabolic_NC2016.gmt", geneIdType=SymbolIdentifier())#读取我们所提供的免疫细胞基因文件
+
+ssGSEA_Score=gsva(exp_data1, geneSet, method='ssgsea', kcdf='Gaussian', abs.ranking=TRUE)#ssGSEA计算
+normalize=function(x){
+  return((x-min(x))/(max(x)-min(x)))}#定义ssGSEA_Score矫正函数
+norm_ssGSEA_Score=normalize(ssGSEA_Score)#对ssGSEA_Score进行矫正
+norm_ssGSEA_Score=as.data.frame(norm_ssGSEA_Score)
+norm_ssGSEA_Score2 <- norm_ssGSEA_Score %>% rownames_to_column(var = "ID")
+norm_ssGSEA_Score1 = t(norm_ssGSEA_Score2)
+norm_ssGSEA_Score2 <- rbind(colnames(norm_ssGSEA_Score2), norm_ssGSEA_Score2)
+#write.table(norm_ssGSEA_Score2,file='信达 佳蔚 免疫浸润.txt',quote = F,sep = '\t',row.names = F)
+
+#合并
+im_ssgsea_self <- as.data.frame(t(norm_ssGSEA_Score))
+im_ssgsea_self <- im_ssgsea_self %>% rownames_to_column(var = "ID")
+tme_combine <-im_ssgsea_self
+#write.table(tme_combine,file='信达 总 免疫浸润.txt',quote = F,sep = '\t',row.names = F)
+
+#用免疫浸润跑生存！！！---- 
+#总思路：把基因表达值高低分组，挑选高组、低组各做“治疗、对照”对终点的关系
+
+
+#整理临床信息：meta的每一行与exprSet每一列一一对应
+tmp_combine <- as.data.frame(t(tme_combine))
+colnames(tmp_combine)=tmp_combine[1,]
+tmp_combine=tmp_combine[-1,]
+
+#rownames(clinical_data) <- clinical_data$newnames
+s = intersect(rownames(clinical_data),colnames(tmp_combine));length(s)
+#tmp_combine = tmp_combine[,s]
+#clinical_data = clinical_data[s,]
+dim(tmp_combine)
+dim(meta)
+identical(rownames(meta),colnames(tmp_combine))
+exprSet <- tmp_combine
+
+meta <- clinical_data
+meta <- meta[meta$group.x == "sintilimab", ]#提取不同疗法的亚组！
+col_names <- colnames(tpm)
+filtered_cols <- col_names[substr(col_names, 6, 6) == "E"]
+exprSet <- tmp_combine[,filtered_cols]
+##tpm <-tpm[,filtered_cols]
+identical(rownames(meta),colnames(exprSet))
+
+meta <- meta[meta$group.x == "standard", ]
+col_names <- colnames(tpm)
+filtered_cols <- col_names[substr(col_names, 6, 6) == "C"]
+exprSet <- tmp_combine[,filtered_cols]
+##tpm <-tpm[,filtered_cols]
+identical(rownames(meta),colnames(exprSet))
+
+
+
+```
+
+#先跑一个试试，挑选 script----
+
+```{r setup}
+###最终确定的 script----
+#二分法分高低
+meta$group = ifelse(as.numeric(gene)> median(as.numeric(gene)),'high','low')
+meta$group <- factor(meta$group, levels = c("high", "low"))
+submeta <- meta#全部
+#四分法分高低
+meta$group =
+  ifelse(as.numeric(gene)>quantile(as.numeric(gene),.75),"high",ifelse(as.numeric(gene)>quantile(as.numeric(gene),.5),"Q2",ifelse(as.numeric(gene)>quantile(as.numeric(gene),.25),"Q3","low")))#设置函数，四分位分组
+meta_quan <- meta[meta$group %in% c("high", "low"), ]
+meta_quan$group <- factor(meta_quan$group, levels = c("high", "low"))
+submeta <- meta_quan#
+# 17 对原发复发对比
+g = "CXCL8";g 
+for (i in 01:17) {
+  name = paste0("Re_Na_",i)
+  C = paste0(name,"C")
+  P = paste0(name,"P")
+  #g = "CXCL8"
+  meta[name,'group'] = ifelse(as.numeric(exprSet[g, C])> as.numeric(exprSet[g,P]),"up","down")
+  meta$group <- factor(meta$group, levels = c("up","down"))
+}
+submeta <- meta
+
+
+##试跑----
+
+g = "ljw (Tfh)";g 
+#二分法分高低
+meta$group = ifelse(as.numeric(exprSet[g, ])> median(as.numeric(exprSet[g, ])),'high','low')
+meta$group <- factor(meta$group, levels = c("high", "low"))
+#四分法分高低
+meta$group =
+  ifelse(as.numeric(exprSet[g, ])>quantile(as.numeric(exprSet[g, ]),.75),"high",ifelse(as.numeric(exprSet[g, ])>quantile(as.numeric(exprSet[g, ]),.5),"Q2",ifelse(as.numeric(exprSet[g, ])>quantile(as.numeric(exprSet[g, ]),.25),"Q3","low")))#设置函数，四分位分组
+meta_quan <- meta[meta$group %in% c("high", "low"), ]
+meta_quan$group <- factor(meta_quan$group, levels = c("high", "low"))
+
+#选择亚群
+submeta <- meta#二分法
+submeta <- meta_quan#四分法
+submeta <- meta[meta$group.x == "standard", ]#提取不同疗法的亚组！
+submeta <- meta[meta$group == "high", ]#提取表达高低法的亚组！
+
+#logrank
+colnames(meta)
+data.survdiff=survdiff(Surv(PFStime,PFS)~group,data=submeta)
+p.val = 1 - pchisq(data.survdiff$chisq, length(data.survdiff$n) - 1)
+sfit1 <- survfit(Surv(PFStime,PFS)~group, data=submeta)
+ggsurvplot(sfit1,pval=TRUE)
+ggsurvplot(sfit1, data = meta,
+                   legend.title = "", # 图例标题
+                   legend.labs = c("Tfh_high","Tfh_low"), # 图例标签，注意顺序不要标错
+                   axes.oDFSet = FALSE, #坐标轴刻度从原点开始
+                   xlab="Time",
+                   ylab="PFS",
+           pval=TRUE
+)
+p.val
+
+
+#cox
+m=coxph(Surv(PFStime,PFS) ~ group, data =  submeta)
+beta <- coef(m)
+se <- sqrt(diag(vcov(m)))
+HR <- exp(beta)
+HRse <- HR * se
+sum <- summary(m)
+broom::tidy(m , exponentiate = T, conf.int = T)
+
+ggforest(model = m,#cox回归方程
+         data = submeta,#数据集
+         main = "")#标题
+
+#生存曲线
+submeta <- meta[meta$group.x == "standard", ]#提取基因表达高、低的亚组！
+sfit1 <- survfit(Surv(PFStime,PFS)~group, data=submeta)
+ggsurvplot(sfit1,pval=TRUE)
+print(sfit1)
+submeta <- meta[meta$group.x == "standard", ]#提取基因表达高、低的亚组！
+sfit2 <- survfit(Surv(PFStime,PFS)~group, data=submeta)
+ggsurvplot(sfit2,pval=TRUE)
+#生存曲线合并
+fitlist <- list(sfit1, sfit2)
+ggsurvplot_combine(fitlist, data = meta)
+# 增加一些修饰条件使图片美观
+ggsurvplot_combine(fitlist, data = meta,
+                   legend.title = "", # 图例标题
+                   legend.labs = c("standard CXCL8low","standard CXCL8high","standard CXCL8low","standard CXCL8high"), # 图例标签，注意顺序不要标错
+                   axes.oDFSet = FALSE, #坐标轴刻度从原点开始
+                   xlab="Time",
+                   ylab="DFS"
+)
+
+
+
+
+```
+
+#批量 logrank----
+
+```{r setup}
+log_rank_p <- apply(exprSet , 1 , function(gene){
+  #gene=exprSet[1,]
+  gene = as.numeric(gene)
+  
+  #二分法分高低
+  meta$group = ifelse(as.numeric(gene)> median(as.numeric(gene)),'high','low')
+  meta$group <- factor(meta$group, levels = c("high", "low"))
+  submeta <- meta#全部
+  
+  data.survdiff=survdiff(Surv(PFStime,PFS)~group,data=submeta)
+  p.val = 1 - pchisq(data.survdiff$chisq, length(data.survdiff$n) - 1)
+  return(p.val)
+})
+
+log_rank_p=sort(log_rank_p)
+table(log_rank_p<0.01)
+table(log_rank_p<0.05)
+log_rank_result=as.data.frame(log_rank_p)
+log_rank_result <- log_rank_result %>% rownames_to_column(var = "ID")
+log_rank_result[1:3,]
+#write.table(log_rank_result,file='四分法陈雨沛 批量logrank DFS.txt',quote = F,sep = '\t',row.names = F)
+```
+#批量KM曲线 ----
+```{r setup}
+results <- list()
+for (i in 1:nrow(exprSet)) {
+  gene <- exprSet[i, ]
+  gene <- as.numeric(gene)
+  #script
+  meta$group <- ifelse(as.numeric(gene) > median(as.numeric(gene)), 'high', 'low')
+  meta$group <- factor(meta$group, levels = c("high", "low"))
+  submeta <- meta
+  #计算
+  sfit1<- survfit(Surv(PFStime,PFS) ~ group, data = submeta)
+  results[[i]] <-ggsurvplot(sfit1,pval=TRUE)
+  results[[i]]
+  results[[i]] <- results[[i]] + ggtitle(rownames(exprSet)[i])
+}
+print(results[[1]])
+length(results)
+```
+
+#批量 cox----
+
+```{r setup}
+
+cox_results <-apply(exprSet , 1 , function(gene){
+  #粘贴 script
+  #二分法分高低
+  meta$group = ifelse(as.numeric(gene)> median(as.numeric(gene)),'high','low')
+  meta$group <- factor(meta$group, levels = c("high", "low"))
+  submeta <- meta#全部
+  
+    m=coxph(Surv(PFStime,PFS) ~ group, data =submeta)
+    beta <- coef(m)
+    se <- sqrt(diag(vcov(m)))
+    HR <- exp(beta)
+    HRse <- HR * se
+    
+    #summary(m)
+    tmp <- round(cbind(coef = beta, 
+                       se = se, z = beta/se, 
+                       p = 1 - pchisq((beta/se)^2, 1),
+                       HR = HR, HRse = HRse,
+                       HRz = (HR - 1) / HRse, 
+                       HRp = 1 - pchisq(((HR - 1)/HRse)^2, 1),
+                       HRCILL = exp(beta - qnorm(.975, 0, 1) * se),
+                       HRCIUL = exp(beta + qnorm(.975, 0, 1) * se)), 3)
+    
+    #return(tmp['gene',]) 
+    return(tmp['grouplow',])#二分类变量，从第一次跑的结果来看提取哪个分组
+  })
+
+cox_results=as.data.frame(t(cox_results))
+table(cox_results$p<0.01)
+table(cox_results$p<0.05)
+
+lr = names(log_rank_p)[log_rank_p<0.05];length(lr)
+cox = rownames(cox_results)[cox_results$p<0.05];length(cox)
+length(intersect(lr,cox))
+
+cox_result=as.data.frame(cox_results)
+cox_result <- cox_result %>% rownames_to_column(var = "ID")
+cox_result[1:3,]
+#  write.table(cox_result,file='二分法陈雨沛 批量cox DFS.txt',quote = F,sep = '\t',row.names = T)
+
+```
+
+
+
+#数据导出----
+```{r}
+pdf(file="XD 对照组 代谢评分 Surv(PFStime,PFS)  KM曲线.pdf",width=20, height  = 10)
+arrange_ggsurvplots(results, print = TRUE,  
+                    ncol = 4,nrow = 2)#定义行数和列数
+dev.off()
+write.table(cox_result,file='XD 对照组 代谢评分 Surv(PFStime,PFS) 批量cox .txt',quote = F,sep = '\t',row.names = T)
+write.table(log_rank_result,file='XD 对照组 代谢评分 Surv(PFStime,PFS)  批量logrank.txt',quote = F,sep = '\t',row.names = F)
+```
+#批量 cox(交互p）----
+
+```{r setup}
+cox_results <-apply(exprSet , 1 , function(gene){
+  #粘贴 script
+  #二分法分高低
+  meta$group = ifelse(as.numeric(gene)> median(as.numeric(gene)),'high','low')
+  meta$group <- factor(meta$group, levels = c("high", "low"))
+  submeta <- meta#全部
+  
+  m=coxph(Surv(PFStime,PFS) ~ group*group.x, data =submeta)
+  beta <- coef(m)
+  se <- sqrt(diag(vcov(m)))
+  HR <- exp(beta)
+  HRse <- HR * se
+  
+  #summary(m)
+  tmp <- round(cbind(coef = beta, 
+                     se = se, z = beta/se, 
+                     p = 1 - pchisq((beta/se)^2, 1),
+                     HR = HR, HRse = HRse,
+                     HRz = (HR - 1) / HRse, 
+                     HRp = 1 - pchisq(((HR - 1)/HRse)^2, 1),
+                     HRCILL = exp(beta - qnorm(.975, 0, 1) * se),
+                     HRCIUL = exp(beta + qnorm(.975, 0, 1) * se)), 3)
+  
+  #return(tmp['gene',]) 
+  return(tmp['grouplow:group.xstandard',])#二分类变量，从第一次跑的结果来看提取哪个分组
+})
+
+cox_results=as.data.frame(t(cox_results))
+table(cox_results$p<0.01)
+table(cox_results$p<0.05)
+
+lr = names(log_rank_p)[log_rank_p<0.05];length(lr)
+cox = rownames(cox_results)[cox_results$p<0.05];length(cox)
+length(intersect(lr,cox))
+
+cox_result=as.data.frame(cox_results)
+cox_result <- cox_result %>% rownames_to_column(var = "ID")
+cox_result[1:3,]
+write.table(cox_result,file='XD总 批量cox交互P Surv(PFStime,PFS).txt',quote = F,sep = '\t',row.names = T)
+
+
+#利用within函数因子化，直接利用factor也可以
+colon <- within(colon, {
+  group <- factor(group, labels = c("High", "male"))
+  differ <- factor(differ, labels = c("well", "moderate", "poor"))
+  extent <- factor(extent, labels = c("submuc.", "muscle", "serosa", "contig."))
+})
+#以下构建回归方程
+bigmodel <-
+  coxph(Surv(time, status) ~ sex + rx + adhere + differ + extent + node4,
+        data = colon )
+#以下绘制森林图
+p<- ggforest(bigmodel,colon)
+print(p)
+
+```
+
+#数据整合----
+```{r}
+
+
+result_combine <- a %>% 
+  inner_join(b, by="ID")
+result_combine$change 
+write.table(result_combine,file='二分法陈雨沛 批量logrank+cox DFS.txt',quote = F,sep = '\t',row.names = F)
+
+result_selected <- result_combine %>% 
+  inner_join(c, by="ID")
+result_selected <- inner_join(result_selected,ft, by = c("ID" = "Symbol"))#交集、注释
+result_selected <- inner_join(result_selected,anno, by = c("ID" = "Symbol"))#交集、进一步注释
+
+write.table(result_selected,file='二分法陈雨沛 批量cox+logrank+原发复发公司 DFS .txt',quote = F,sep = '\t',row.names = F)
+```
+
+#原发复发变化算生存----
+```{r setup}
+#如何挑选目的基因集的基因
+getwd()
+setwd("/Users/louliming/Desktop/原发复发数据")
+
+#输入矩阵
+
+##输入表型信息，分组
+clinical =read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/17\ 原发复发预后.txt',header = T,sep = '\t')
+rownames(clinical)=clinical[,2]
+clinical_data=read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/表型.txt',header = T,sep = '\t')
+## 导入基因ID转化信息(仅保留编码基因)
+ft <- read.csv('/Users/louliming/Desktop/生信/基因集/feature.csv', header = T)
+ft <- as.data.frame(filter(ft, ft$gene_biotype=='protein_coding'))
+
+##输入count
+rawcount =read.table('/Users/louliming/Desktop/原发复发数据/02矩阵合集/公司原始ensg\ count.txt',header = T,sep = '\t')  #'data.txt'是文件名
+rawcount$id <- ft$Symbol[match(rawcount$id, ft$ensembl_gene_id)]#注释
+rawcount=rawcount[!duplicated(rawcount$id),] %>% na.omit()#count去重去na
+rownames(rawcount)=rawcount[,1]
+rawcount=rawcount[,-1]
+names(rawcount) <-clinical_data$sample_name#根据某一列修改列名
+range(rawcount)
+#rawcount1 <- rawcount[apply(rawcount,1,sd)>0.5,] #质量控制！
+rawcount = rawcount[rowSums(rawcount)>0,] #去除所有样本表达为0的基因
+#rawcount3 = rawcount[apply(rawcount, 1, function(x) sum(x > 0) > 0.5*ncol(rawcount)),]#一半以上样本表达
+
+##输入tpm
+rawtpm=read.table('/Users/louliming/Desktop/原发复发数据/02矩阵合集/公司原始ensg\ tpm.txt',header = T,sep = '\t')
+rawtpm$id <- ft$Symbol[match(rawtpm$id, ft$ensembl_gene_id)]#注释
+rawtpm=rawtpm[!duplicated(rawtpm$id),] %>% na.omit()#tpm去重去na
+rownames(rawtpm)=rawtpm[,1]
+rawtpm=rawtpm[,-1]
+names(rawtpm) <-clinical_data$sample_name
+range(rawtpm)
+#rawtpm1 <- rawtpm[apply(rawtpm,1,sd)>0.5,] #质量控制！
+rawtpm = rawtpm[rowSums(rawtpm)>0,] #去除所有样本表达为0的基因
+#rawtpm3 = rawtpm[apply(rawtpm, 1, function(x) sum(x > 0) > 0.5*ncol(rawtpm)),]#一半以上样本表达
+
+#筛选样本
+#1,筛选出配对
+clinical_data=clinical_data[order(clinical_data$sample),] 
+group_list=clinical_data[which(clinical_data$event=='relapse'),]
+count=rawcount[,group_list$sample_name]#提取筛选后的的count矩阵
+tpm=rawtpm[,group_list$sample_name]#提取筛选后的的tpm矩阵
+
+
+#2, 分别筛选出原发组和复发组
+group_list=c(clinical_data$sample_name[which(clinical_data$event=='relapse'&clinical_data$paired=='pri')],#筛选过程：根据某一列的数值提取另一列
+             clinical_data$sample_name[which(clinical_data$event=='relapse'&clinical_data$paired=='case')])
+group_list
+count=rawcount[,group_list]#提取筛选后的的count矩阵
+tpm=rawtpm[,group_list]#提取筛选后的的tpm矩阵
+
+
+meta <- clinical
+exprSet <- tpm
+ref_vec ="high" #要看表达高的还是低的
+
+
+
+
+g = "CXCL8";g 
+
+
+#二分法分高低
+
+#####################
+g = "ZNF451";g 
+#分组 script
+for (i in 01:17) {
+  name = paste0("Re_Na_",i)
+  C = paste0(name,"C")
+  P = paste0(name,"P")
+  #g = "CXCL8"
+  meta[name,'group'] = ifelse(as.numeric(exprSet[g, C])> as.numeric(exprSet[g,P]),"up","down")
+  meta$group <- factor(meta$group, levels = c("up","down"))
+}
+submeta <- meta
+
+#logrank
+data.survdiff=survdiff(Surv(PFStime,PFS)~group,data=submeta)
+p.val = 1 - pchisq(data.survdiff$chisq, length(data.survdiff$n) - 1)
+sfit1 <- survfit(Surv(PFStime,PFS)~group, data=submeta)
+ggsurvplot(sfit1,pval=TRUE)
+p.val
+#cox
+m=coxph(Surv(PFStime,PFS) ~ group, data =  submeta)
+beta <- coef(m)
+se <- sqrt(diag(vcov(m)))
+HR <- exp(beta)
+HRse <- HR * se
+sum <- summary(m)
+broom::tidy(m , exponentiate = T, conf.int = T)
+
+
+#批量logrank
+log_rank_result <- data.frame(gene = character(), pval = numeric() ,stringsAsFactors = FALSE)
+for (m in 1:nrow(exprSet)){
+  gene = rownames(exprSet)[m]
+  #分组 script
+  for (i in 1:17) {
+    name = paste0("Re_Na_",i)
+    C = paste0(name,"C")
+    P = paste0(name,"P")
+    meta[name,'group'] = ifelse(as.numeric(exprSet[gene, C])> as.numeric(exprSet[gene,P]),"up","down")
+    meta$group <- factor(meta$group, levels = c("up","down"))
+  }
+  submeta <- meta
+  
+  if (length(unique(submeta$group)) == 1){ p.val = NA }else {
+    data.survdiff=survdiff(Surv(PFStime,PFS)~group,data=submeta)
+    p.val = 1 - pchisq(data.survdiff$chisq, length(data.survdiff$n) - 1)
+  } 
+  
+  log_rank_result <- rbind(log_rank_result, data.frame(gene = gene, logrankp = p.val, stringsAsFactors = FALSE))
+}
+logrankp_adj <- p.adjust(log_rank_result$logrankp , method = "BH")
+log_rank_result1 <- cbind(log_rank_result, logrankp_adj)#矫正 p
+
+write.table(log_rank_result1,file='原发复发变化 批量logrank OS.txt',quote = F,sep = '\t',row.names = F)
+
+
+#批量cox
+cox_result <- data.frame(gene = character(),stringsAsFactors = FALSE)
+
+for (m in 1:nrow(exprSet)){
+  gene = rownames(exprSet)[m]
+  #分组 script
+  for (i in 01:17) {
+    name = paste0("Re_Na_",i)
+    C = paste0(name,"C")
+    P = paste0(name,"P")
+    #g = "CXCL8"
+    meta[name,'group'] = ifelse(as.numeric(exprSet[gene, C])> as.numeric(exprSet[gene,P]),"up","down")
+    meta$group <- factor(meta$group, levels = c("up","down"))
+  }
+  submeta <- meta
+  
+  if (length(unique(submeta$group)) == 1){ 
+                      tmp <- round(cbind(coef = NA, 
+                       se = NA, 
+                       z = NA, 
+                       p = NA,
+                       HR = NA, HRse = NA,
+                       HRz =NA, 
+                       HRp = NA,
+                       HRCILL = NA,
+                       HRCIUL =NA)) }else {
+    
+    m=coxph(Surv(PFStime,PFS) ~ group, data =submeta)
+    beta <- coef(m)
+    se <- sqrt(diag(vcov(m)))
+    HR <- exp(beta)
+    HRse <- HR * se
+    
+    #summary(m)
+    tmp <- round(cbind(coef = beta, 
+                       se = se, z = beta/se, 
+                       p = 1 - pchisq((beta/se)^2, 1),
+                       HR = HR, HRse = HRse,
+                       HRz = (HR - 1) / HRse, 
+                       HRp = 1 - pchisq(((HR - 1)/HRse)^2, 1),
+                       HRCILL = exp(beta - qnorm(.975, 0, 1) * se),
+                       HRCIUL = exp(beta + qnorm(.975, 0, 1) * se)), 3)
+  } 
+  
+  cox_result <- rbind(cox_result, data.frame(gene = gene, tmp, stringsAsFactors = FALSE))
+}
+cox_result1 <- cox_result
+
+write.table(cox_result1,file='原发复发变化  批量cox OS.txt',quote = F,sep = '\t',row.names = F)
+
+a = cox_result1
+b = log_rank_result1
+c<-read.table('//Users/louliming/Desktop/原发复发数据/01公司分析结果/公司原发复发配对差异\ log1.5.txt',header = T,sep = '\t')  #'data.txt'是文件名
+ft <- read.csv('/Users/louliming/Desktop/生信/基因集/feature.csv', header = T)
+anno =read.csv('/Users/louliming/Desktop/原发复发数据/05差异富集分析/注释.csv')
+
+
+result_combine <- a %>% 
+  inner_join(b, by="gene")
+result_combine$change 
+write.table(result_combine,file='原发复发变化批量cox+logrank OS.txt',quote = F,sep = '\t',row.names = F)
+
+result_selected <- inner_join(result_combine,ft, by = c("gene" = "Symbol"))
+result_selected <- inner_join(result_selected,anno, by = c("gene" = "Symbol"))#交集、进一步注释
+
+write.table(result_selected,file='原发复发变化批量cox+logrank OS+注释.txt',quote = F,sep = '\t',row.names = F)
+
+
+
+```

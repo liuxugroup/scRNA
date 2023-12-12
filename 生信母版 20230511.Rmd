@@ -1,0 +1,863 @@
+---
+title: "代码母版"
+author: "llm"
+date: '2023-05-11'
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##基本操作
+###设置工作路径
+```{r }
+getwd()
+setwd("/Users/louliming/Desktop/原发复发数据/03评价免疫微环境/免疫组库分析结果")
+
+```
+###安装R包
+```{r}
+# 如果未安装BiocManager，需要首先安装
+if (!require("reshape2", quietly = TRUE))
+install.packages("NMF")
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+depens<-c('tibble', 'survival', 'survminer', 'sva', 'limma', "DESeq2","devtools",'MCPcounter',
+          'limSolve', 'GSVA', 'e1071', 'preprocessCore', 'ggplot2', "biomaRt",
+          'ggpubr', "devtools", "tidyHeatmap", "caret", "glmnet", "ppcor", "timeROC","pracma")
+for(i in 1:length(depens)){
+  depen<-depens[i]
+  if (!requireNamespace(depen, quietly = TRUE))
+    BiocManager::install(depen,update = FALSE)
+}
+BiocManager::install("GSVA")
+if (!requireNamespace("IOBR", quietly = TRUE))
+  devtools::install_github("IOBR/IOBR")
+
+options("repos"="https://mirrors.ustc.edu.cn/CRAN/")
+if(!require("BiocManager")) install.packages("BiocManager",update = F,ask = F)
+options(BioC_mirror="https://mirrors.ustc.edu.cn/bioc/")
+
+cran_packages <- c('stringr','pca3d','Hmisc','rms','circlize' ) 
+Biocductor_packages <- c('sva', 'GOplot', 'GSVA','plotmo','regplot')
+
+for (pkg in cran_packages){
+  if (! require(pkg,character.only=T) ) {
+    install.packages(pkg,ask = F,update = F)
+    require(pkg,character.only=T) 
+  }
+}
+
+
+for (pkg in Biocductor_packages){
+  if (! require(pkg,character.only=T) ) {
+    BiocManager::install(pkg,ask = F,update = F)
+    require(pkg,character.only=T) 
+  }
+}
+
+for (pkg in c(Biocductor_packages,cran_packages)){
+  require(pkg,character.only=T) 
+}
+
+```
+###读 R 包
+```{r}
+library(reshape2)
+library(edgeR)
+library(ggplot2)
+require(cowplot)
+library(forcats)
+library(ggplot2)
+require(tidyverse)
+require(ggplot2)
+require(ggsci)
+require(ggpubr)
+library(DESeq2)
+library(limma)
+library(ReactomePA)
+library(tidyverse)
+library(data.table)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(biomaRt)
+library(enrichplot)
+library(limma)
+library(GSVA)
+library(GSEABase)
+library(clusterProfiler)
+library(reshape2)
+library(pheatmap)
+library(clusterProfiler)
+library(survival)
+library(survminer)
+library(tidyverse)
+library(readxl)
+library(globals)
+library(dplyr)
+library(tidyr)
+library(parallelly)
+library(future)
+library(listenv)
+library(future.apply)
+library("survival")
+library("survminer")
+library("limma")
+library(ggsci)
+library(ggrepel)
+library(statmod)
+```
+
+
+
+###数据读入和保存
+```{r}
+  #
+saveRDS(RNA, paste0("RNA_allPBMC.rds"))
+
+#txt
+data=read.table('data.txt',header = T,sep = '\t')  #'data.txt'是文件名
+write.table(row_names,file='data.txt',quote = F,sep = '\t',row.names = F)
+
+#csv
+data=read.csv('data.csv')
+write.csv(data,'data.csv')
+
+#Rdata
+load('data.Rdata')
+save(a,b,c,file='data.Rdata') #a,b,c是想要保存的数据
+
+#注释counts、TPM
+
+#读表格（counts、ID转换、临床信息）
+counts=read.csv('counts.csv')
+ID=read.table('feature.txt',header = T,sep = '\t')
+IDs=ID[ID$gene_biotype=='protein_coding',]
+clin=read.table('metadata4.txt',header=T,sep = '\t')
+
+colnames(IDs)[1]='ENSG' #改列名
+#第一列变成行名
+row.names(counts)=counts$X
+counts=counts[,-1]
+#将第n列变为行名
+rownames(data)=data[,n]
+data=data[,-n]
+#行名变为第一列
+scores <- rownames_to_column(scores, var = "example")
+
+
+
+#根据ID的对应关系，改counts的基因名
+exp=trans_array(counts,ids = IDs,from = "ENSG",to = "Symbol")
+exp=t(exp)#倒置
+data=cbind(clin,exp)#结合临床数据
+#counts=exp
+data_counts=data
+save(counts,clin,data_counts,file='data_counts.Rdata')#保存counts
+
+```
+###数据处理
+```{r}
+#顶级筛选语句：将某数据框根据另一数据框的某列，放入不允许na存在的矩阵中！
+ft <- ft[ft$ensembl_gene_id %in% rownames(rawcount), c(1:3,10)] %>% na.omit()
+
+#合并矩阵的三种方法
+##1 根据相同的列名合并
+colnames(tpm)[1]=colnames(ft)[1]#第一列的列名相等
+tpm=left_join(tpm,ft)#根据相同的列名合并表格
+##2
+data=cbind(a,b)    #按列合并，a,b行数要相同
+data=rbind(a,b)    #按行合并，a,b列数要相同
+data=plyr::join(a,b,by="x")  #按列名为‘x'这一列合并，保留A的顺序
+##3
+tme_combine <- im_mcpcounter %>% 
+  inner_join(im_epic, by="ID") %>% 
+  inner_join(im_xcell, by="ID") %>% 
+  inner_join(im_cibersort, by="ID") %>% 
+  inner_join(im_ips, by= "ID") %>% 
+  inner_join(im_quantiseq, by="ID") %>% 
+  inner_join(im_estimate, by= "ID") %>% 
+  inner_join(im_timer, by= "ID")
+
+
+#根据命名分组
+
+#挑选出含有某段名字的列
+selected_row <- grepl("Re", rownames(paired_data))
+selected_row
+paired_data <- paired_data[selected_row,]
+#根据名字设置分组
+paired_data$Group <- ifelse(substr(rownames(paired_data), 0, 1) == "P","pri","case")
+paired_data$Paired <- substr(rownames(paired_data), 2, 3) 
+
+#查看数据
+View(data)  #或者在右上角找到直接点，会打开成窗口
+range(exp)
+data$title   #某一向量，会展示在控制台
+dim(data)   #数据有几行几列
+table(data$Group)   #某一列有几个变量，每个变量各有几个
+class(data)   #判断数据类型
+data[1,]  #查看某一行
+data[,1]  #查看某一列
+metadata[,"NK cell_XCELL"]
+
+#数据类型转换
+data=as.matrix(data)
+data=as.data.frame(data)
+data=as.list(data)
+data=as.data.frame(lapply(data,as.numeric))   #字符型转换为数字型
+
+#去重、去NA
+tpm=tpm[!duplicated(tpm$Symbol),] %>% na.omit()
+
+#矩阵转置
+exp=t(exp) %>% as.data.frame()
+data=as.data.frame(t(data))   
+#按某一列排序
+data=data[order(data$Group),]    
+#按data中的a列去重
+data=dplyr::distinct(data,a,.keep_all=TRUE)  
+#去除某几列
+B=A[-c(2,5),]    
+#去除矩阵中的重复值
+exp <- exp %>% distinct(Gene_name, .keep_all = T)
+exp=exp[,-1]
+
+#将第n列变为行名
+rownames(data)=data[,n]
+data=data[,-n]
+#行名变为第一列
+scores <- rownames_to_column(scores, var = "example")
+
+#筛选所需要的矩阵：根据表型某一列的数值提取另一列（两个条件）
+group_list=c(clinical_data$sample_name[which(clinical_data$event.1=='relapse'&clinical_data$event=='pri')],
+clinical_data$sample_name[which(clinical_data$event.1=='relapse'&clinical_data$event=='case')])
+group_list
+test=exp[,group_list]#提取想要的样品
+
+#矩阵合并
+data=cbind(a,b)    #按列合并，a,b行数要相同
+data=rbind(a,b)    #按行合并，a,b列数要相同
+data=plyr::join(a,b,by="x")  #按列名为‘x'这一列合并，保留A的顺序
+
+#提取字符
+group_list =ifelse(str_sub(colnames(hmset_scaled),0,1) =="P","pri","case")
+
+#分组
+#二分法1
+Group=ifelse(exp[,'HOXB5']<=median(exp[,'HOXB5']), "low", "high")
+d_cbind <- cbind(Group,exp)
+#二分法2
+ly1$RNF138[which(ly1$RNF138 >= mean(as.numeric(ly["RNF138",])))] <- "high"
+ly1$RNF138[which(ly1$RNF138 != "high" )] <- "low"
+
+#四分法1
+quantile(exp[1,]) #四分法计算
+ly1 <- as.data.frame(t(ly[,which(ly[1,] <= 5.120519 | ly[1,] >= 6.032973)])) #摘要两头
+ly1$RNF138[which(ly1$RNF138 >= 6.032973)] <- "high" #标记相应区间
+ly1$RNF138[which(ly1$RNF138 <= 5.120519)] <- "low"
+
+#四分法2
+meta$group =
+  ifelse(as.numeric(exprSet[g, ])>quantile(as.numeric(exprSet[g, ]),.75),"high",ifelse(as.numeric(exprSet[g, ])>quantile(as.numeric(exprSet[g, ]),.5),"low",ifelse(as.numeric(exprSet[g, ])>quantile(as.numeric(exprSet[g, ]),.25),"Q3","Q4")))#设置函数，四分位分组
+submeta <- meta[meta$group %in% c("high", "low"), ]
+submeta$group <- factor(submeta$group, levels = c("high", "low"))
+```
+
+###行名列名转换
+```{r}
+#矩阵中的行名列名转换
+library(tidyverse)
+#将第1列变为行名
+rownames(data)=data[,1]
+data1=as.data.frame(data[,-1])
+#将第1行变为列名
+colnames(data)=data[1,]
+data=data[-1,]
+# 将行名作为第一列
+exp1 <- exp %>% rownames_to_column(var = " ")
+# 将列名作为第一行
+exp2 <- rbind(colnames(exp1), exp1)
+
+#如何挑选目的基因集的基因
+gene_names =read.table('/Users/louliming/Desktop/生信/基因集/GeneList.txt',header = T,sep = '\t')  #'data.txt'是文件名
+table=plyr::join(gene_names,exp,by="gene") 
+
+```
+###表格对应合并
+```{r}
+getwd()
+setwd("/Users/louliming/Desktop/原发复发数据")
+
+a=read.table('/Users/louliming/Desktop/a.txt', header = T, sep = "\t")
+view(a)
+b=read.table('/Users/louliming/Desktop/b.txt', header = T, sep = "\t")
+view(b)
+table=plyr::join(a,b,by="name")
+view(table)
+write.csv(table,'table.csv') 
+
+#数据整合----
+#取交集合并
+
+xinda <-read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/信达免疫治疗基因.txt',header = T,sep = '\t')  #'data.txt'是文件名
+yuanfafufa <-read.table('/Users/louliming/Desktop/原发复发数据/00工作文件夹/原发复发配对差异基因.txt',header = T,sep = '\t')  #'data.txt'是文件名
+anno =read.csv('/Users/louliming/Desktop/原发复发数据/05差异富集分析/注释.csv')
+
+result <- inner_join(yuanfafufa,xinda, by = c("ID" = "ID"))#原发复发、信达
+result <- inner_join(result,ft, by = c("ID" = "Symbol"))#交集、注释
+result1 <- inner_join(result,anno, by = c("ID" = "Symbol"))#交集、进一步注释
+
+write.csv(result1,"交集总结.csv")
+result <- inner_join(df1, df2, by = c("column1" = "column2"))
+```
+
+##矩阵导入
+```{r}
+#llm
+exp=read.table('/Users/louliming/Desktop/原发复发数据/02矩阵合集/llm\ 去除所有样本为0的基因.txt',
+               header = T,sep = '\t')
+exp <- exp %>% distinct( .keep_all = T) #去除重复值
+row.names(exp)=exp[,1]
+exp=exp[,-1]
+exp=as.data.frame(t(exp))
+write.table(exp,file='llm去重.txt',quote = F,sep = '\t',row.names = F)
+
+#ROA0
+exp=read.table('ROA0 3V3.txt',
+               header = T,sep = '\t')
+exp <- exp %>% distinct(Gene_name, .keep_all = T)#去除重复值
+row.names(exp)=exp[,1]
+exp=exp[,-1]
+exp=as.data.frame(t(exp))
+#(exp,'ROA0去重.csv')
+#write.table(exp,file='ROA0去重.txt',quote = F,sep = '\t',row.names = F)
+
+#雷媛
+exp=read.table('雷媛.txt',
+               header = T,sep = '\t')
+exp <- exp %>% distinct(Gene_name, .keep_all = T)#去除重复值
+row.names(exp)=exp[,1]
+exp=exp[,-1]
+exp=as.data.frame(t(exp))
+
+ids <- read_excel("metadata_ly.xlsx",sheet = 1, col_names = TRUE)
+rownames(ids) <- ids$cell_type
+
+#张力
+exp=read.table('张力.txt',
+               header = T,sep = '\t')
+exp <- exp %>% distinct(Gene_Symbol, .keep_all = T)#去除重复值
+row.names(exp)=exp[,1]
+exp=exp[,-1]
+exp=as.data.frame(t(exp))#矩阵转置
+#write.table(exp,file='张力去重.txt',quote = F,sep = '\t',row.names = F)
+
+idz <- read_excel("metadata_zl.xlsx",sheet = 1, col_names = TRUE)
+
+#信达
+exp <- data
+#exp <- exp %>% distinct(Gene_Synbol, .keep_all = T)#去除重复值
+exp <-exp[,-c(1:16)]
+write.csv(exp,'exp.csv')
+
+#31v10
+load('GSE12452（31t10n）.Rdata')
+exp=as.data.frame(t(exp))
+data31=cbind(cli,exp)
+colnames(data31)[10]='group'
+data1=data31[data31$group=='normal',]
+data2=data31[data31$group=='nasopharyngeal carcinoma',]
+data2=data2[,-c(1:38)] 
+```
+
+
+##质量控制
+```{r}
+exp=as.data.frame(t(exp))#数据要求：列是样本，行是基因
+#挑基因
+exp1 = exp[rowSums(exp)>0,] #去除所有样本表达为0的基因
+exp2 = exp[apply(exp, 1, function(x) sum(x > 0) > 0.5*ncol(exp)),]#一半以上样本表达
+
+rawcount <- rawcount[apply(rawcount,1,sd)>0.5,] #质量控制！
+#去重、去NA
+tpm=tpm[!duplicated(tpm$Symbol),] %>% na.omit()
+
+
+
+#挑样本，根据临床信息中的coverage筛选
+#coverage大于70%
+
+```
+
+##单基因 癌和非癌表达差异
+```{r}
+###雷媛
+ly <- read.table("/Users/louliming/Desktop/HSY/HTA_mRNA_GeneName_median_ly.txt", header = T, sep = '\t')
+
+index=order(rowMeans(ly[,-1]),decreasing = T)
+expr_ordered=ly[index,]
+keep=!duplicated(expr_ordered$Gene_name)
+expr_max_ly=expr_ordered[keep,]
+rownames(expr_max_ly) <- expr_max_ly$Gene_name
+expr_max_ly <- expr_max_ly[,-1]
+
+data_ly <- as.data.frame(expr_max_ly)
+ids <- read_excel("/Users/louliming/Desktop/HSY/metadata_ly.xlsx",sheet = 1, col_names = TRUE)
+rownames(ids) <- ids$cell_type
+
+expr_max_ly1 <- expr_max_ly[,rownames(ids)]
+ids$gene <- as.numeric(t(expr_max_ly1["HNRNPA0",]))
+
+write.csv(ids,'RNF138在雷媛中的表达量.csv')
+
+p <- ggboxplot(ids, x = "response", y = "gene",
+               color = "response", palette = "jco",
+               add = "jitter")
+p + stat_compare_means()
+
+
+###31v10
+load('GSE12452（31t10n）.Rdata')
+exp=as.data.frame(t(exp))
+data31=cbind(cli,exp)
+colnames(data31)[10]='group'
+data1=data31[data31$group=='normal',]
+data2=data31[data31$group=='nasopharyngeal carcinoma',]
+#data2=data2[,-c(1:38)] 
+
+data31=rbind(data2,data1)
+data4=subset(data31, select = c("group", "KAT5"))
+write.csv(data4,'RNF138在细胞中的表达量.csv')
+
+p <- ggboxplot(data31, x = "group", y = "ASPP2",
+               color = "group", palette = "jco",
+               add = "jitter")
+p + stat_compare_means()
+
+###18v18
+load('/Users/louliming/Desktop/生信/富集/GSE53819（18t18n）.Rdata')
+exp1=as.data.frame(t(exp))
+data18=cbind(cli,exp1)
+data1=data18[data18$characteristics_ch1=='tissue: Non-cancerous nasopharyngeal tissue',]
+data2=data18[data18$characteristics_ch1=='tissue: Nasopharyngeal carcinoma primary tumor',]
+data31=rbind(data2,data1)
+data4=subset(data31, select = c("characteristics_ch1", "HNRNPA0"))
+
+p <- ggboxplot(data18, x = "group", y = "RNF138",
+               color = "group", palette = "jco",
+               add = "jitter")
+p + stat_compare_means()
+```
+
+##limma差异差异分析
+```{r}
+#手动分组1：自己把分组整理好，变成txt
+group_list<-read.table("分组信息.txt")
+new_group<- group_list[order(group_list[,1]),] 
+Group<-new_group[,2]
+
+#手动分组2：挑某组出来做差异分析
+Group=experi$TLS.GC #挑某组出来做差异分析
+Group = factor(Group,levels = c("0","1"))
+table(Group)
+
+#单基因表达分组
+Group=ifelse(exp[,'HNRNPA0']<=median(exp[,'HNRNPA0']), "low", "high")
+Group = factor(Group,levels = c("high","low"))
+
+#limma分析
+exp=as.data.frame(t(exp))
+dge <- edgeR::DGEList(counts=exp)
+dge <- edgeR::calcNormFactors(dge)
+design <- model.matrix(~Group)
+v <- voom(dge,design, normalize="quantile")
+fit <- lmFit(v, design)
+fit= eBayes(fit)
+DEG = topTable(fit, coef=2, n=Inf)
+DEG = na.omit(DEG)
+#添加change这一列，表明基因是up还是down
+logFC_t = 1
+pvalue_t = 0.05
+k1 = (DEG$P.Value < pvalue_t)&(DEG$logFC < -logFC_t)
+k2 = (DEG$P.Value < pvalue_t)&(DEG$logFC > logFC_t)
+DEG$change = ifelse(k1,"DOWN",ifelse(k2,"UP","NOT"))
+write.csv(DEG,'DEG.csv')#手动转一下格式
+```
+### DEGs及聚类热图
+
+```{r}
+library(limma)
+library(factoextra)
+library(dplyr)
+library(pheatmap)
+
+
+metadata<- read_excel("/Users/louliming/Desktop/HSY/metadata_ly.xlsx",sheet = 2, col_names = TRUE)
+
+design <- model.matrix(~0+factor(metadata$group))
+#分组
+colnames(design) = c("Response", "Non_response")
+rownames(design) = rownames(metadata)
+contrast.matrix<-makeContrasts("Response-Non_response",
+                               levels = design)
+
+fit <- lmFit(expr_max_ly, design)
+fit2 <- contrasts.fit(fit, contrast.matrix) 
+fit2 <- eBayes(fit2) 
+DEG<-topTable(fit2, coef=1, n=Inf) %>% na.omit()  ## coef比较分组 n基因数
+
+
+index_matrix<-t(scale(t(expr_max_ly[rownames(DEG)[which(DEG$P.Value < 0.05)],])))##归一化
+index_matrix[index_matrix>4]=4
+index_matrix[index_matrix<-4]=-4
+
+group <- metadata$group
+group[group =="0"] = "Response"
+group[group =="1"] = "Non-Response"
+
+anno=data.frame(group=group)
+rownames(anno)=metadata$id
+ann_colors = list(
+    group = c(`Response` = "blue", `Non-Response` = "red")
+)
+
+#做热图
+pheatmap(index_matrix,
+         clustering_method = 'ward.D2',
+         show_colnames =F,
+         show_rownames = F,
+         cluster_cols = F, 
+         annotation_col=anno,
+         annotation_colors = ann_colors,
+         color = colorRampPalette(c("navy","white","firebrick3"))(256))
+
+```
+
+##富集分析
+现在富集分析一共有三种方式：这个代码、Sangerbox、网页GO和KEGG
+GSEA分析，按照app的要求放进去算矩阵
+```{r 富集分析}
+#数据整理
+#手动转一下格式
+library(org.Hs.eg.db)
+DEG=read.table('~/Desktop/deg.txt',header = T,sep = '\t')
+genelist_input <- DEG
+colnames(genelist_input)[1]='Gene'
+genename <- as.character(genelist_input[,1]) #提取第一列基因名
+gene_map <- select(org.Hs.eg.db, keys=genename, 
+                   keytype="SYMBOL", columns=c("ENTREZID"))
+colnames(gene_map)[1]<-"Gene"
+aaa<-inner_join(gene_map,genelist_input,by = "Gene")
+aaa<-aaa[,-1]
+aaa<-na.omit(aaa)
+  aaa<-aaa[order(aaa$log2FoldChange,decreasing = TRUE),]
+  
+bbb <- aaa[aaa$change == "UP", ]
+geneList = aaa$log2FoldChange
+names(geneList) = as.character(aaa[,1])
+
+#GO
+GO_gseresult <- gseGO(geneList, 'org.Hs.eg.db', 
+                      keyType = "ENTREZID", ont="all",
+                      nPerm = 1000, minGSSize = 10, maxGSSize = 1000, 
+                      pvalueCutoff=1)
+GO=summary(GO_gseresult)
+write.csv(GO,'GO.csv')
+
+#KEGG
+KEGG_gseresult <- gseKEGG(geneList, 
+                          nPerm = 1000, minGSSize = 10, 
+                          maxGSSize = 1000, pvalueCutoff=1)
+KEGG=summary(KEGG_gseresult)
+write.csv(KEGG,'KEGG.csv')
+
+#gsea图
+gseaplot2(GO_gseresult, 
+          "GO:0005200", 
+          color = "firebrick",
+          rel_heights=c(1, .2, .6))
+
+
+
+#Hallmark
+genelist_input <- DEG
+colnames(genelist_input)[1]='Gene'
+genelist_input<-genelist_input[order(genelist_input$logFC,
+                                     decreasing = TRUE),]
+hallmark <- read.gmt("h.all.v2022.1.Hs.symbols.gmt")
+genelist <- genelist_input$logFC
+names(genelist) <- genelist_input$Gene
+gsea.re1<- GSEA(genelist,  #待富集的基因列表
+                TERM2GENE = hallmark,  #基因集
+                pvalueCutoff = 1,  #指定 p 值阈值（可指定 1 以输出全部）
+                pAdjustMethod = 'BH') 
+Hallmark=summary(gsea.re1)
+write.csv(Hallmark,'Hallmark.csv')
+
+#自己基因集
+genelist_input <- DEG
+colnames(genelist_input)[1]='Gene'
+genelist_input<-genelist_input[order(genelist_input$logFC,
+                                     decreasing = TRUE),]
+metaaa <- read.gmt("NC代谢数据.gmt")
+genelist <- genelist_input$logFC
+names(genelist) <- genelist_input$Gene
+gsea.re1<- GSEA(genelist,  #待富集的基因列表
+                TERM2GENE = metaaa,  #基因集
+                pvalueCutoff = 1,  #指定 p 值阈值（可指定 1 以输出全部）
+                pAdjustMethod = 'BH') 
+Hallmark=summary(gsea.re1)
+write.csv(Hallmark,'自己基因.csv')
+```
+
+##相关性分析
+###批量相关性分析1
+```{r} 
+library(globals)
+library(dplyr)
+library(tidyr)
+library(parallelly)
+library(future)
+library(listenv)
+library(future.apply)
+
+exp=data2
+exprSet=as.data.frame(t(exp))
+
+singleGene_cor <- function(gene){
+  y <- as.numeric(exprSet[gene,])
+  rownames <- rownames(exprSet)
+  do.call(rbind,future_lapply(rownames, function(x){
+    dd  <- cor.test(as.numeric(exprSet[x,]), y, type='pearson')
+    data.frame(gene=gene,mRNAs=x,cor=dd$estimate,p.value=dd$p.value)
+  }))
+}
+dd <- singleGene_cor('RNF138')
+corSig <- dd %>% 
+  filter(p.value < 0.05) %>% 
+  arrange(desc(abs(cor)))%>% 
+  dplyr::slice(1:10)
+
+##提取目的基因集的相关性
+targetgenes=read.table('m6a调控因子.txt', header = T, sep = "\t")
+table=plyr::join(targetgenes,dd,by="mRNAs") 
+write.csv(table,'RNF138相关性基因.csv')
+
+##提取p值小于0.05的数据、R值大于0.4
+cor_data_sig <- cor_data_df %>% 
+  filter(pvalue < 0.05) %>% 
+  filter(correlation < -0.4  | correlation > 0.4) %>% 
+  arrange(desc(abs(correlation)))%>% 
+  dplyr::slice(1:10000)
+```
+
+###批量相关性分析2
+```{r} 
+
+y <- as.numeric(exp[,"RNF138"])        ## 本次操作中，选取HNRNPA0基因作为需要分析的单基因，批量求取它与该表达矩阵中其他基因的相关性
+colnames <- colnames(exp)
+cor_data_df <- data.frame(colnames)    ##构建这些基因的数据框
+
+##利用 for循环来求HNRNPA0与其他基因之间的相关性
+library(tidyr)
+library(dplyr)
+
+for (i in 1:length(colnames))
+{
+  test <- cor.test(as.numeric(exp[,i]),y,type="spearman")
+  cor_data_df[i,2] <- test$estimate
+  cor_data_df[i,3] <- test$p.value
+}
+
+names(cor_data_df) <- c("Symbol","correlation","pvalue")
+head(cor_data_df)
+##提取目的基因集的相关性
+targetgenes=read.table('m6a调控因子.txt', header = T, sep = "\t")
+table=plyr::join(targetgenes,cor_data_df,by="Symbol") 
+write.csv(table,'RNF138相关性基因.csv')
+
+##提取p值小于0.05的数据、R值大于0.4
+cor_data_sig <- cor_data_df %>% 
+  filter(pvalue < 0.05) %>% 
+  filter(correlation < -0.4  | correlation > 0.4) %>% 
+  arrange(desc(abs(correlation)))%>% 
+  dplyr::slice(1:10000)
+  
+write.csv(cor_data_sig,'批量相关性分析.csv')
+
+library(ggstatsplot)
+##利用该包进行绘制相关性的散点图和条形图
+ggscatterstats(data =as.data.frame(exp), 
+               y = HNRNPA0, 
+               x = RRP1,
+               centrality.para = "mean",                              
+               margins = "both",                                         
+               xfill = "#CC79A7", 
+               yfill = "#009E73", 
+               marginal.type = "histogram",
+               title = "Relationship between HNRNPA0 and RRP1")
+
+```
+
+##ssGSEA
+分组的话直接把基因集捏成gmt的样子就好了
+第一列通路、第二列链接可以写NA、第三列开始是基因集
+先搞成txt，再直接改文件名字
+```{r} 
+library(limma)
+library(GSVA)
+library(GSEABase)
+library(clusterProfiler)
+library(reshape2)
+library(pheatmap)
+library(clusterProfiler)
+
+
+#读好网上做好的评分，做分组，继续做差异基因
+score=read.table('enrichScore (2).txt',
+               header = T,sep = '\t')
+row.names(score)=score[,1]
+score=score[,-1]
+score=as.data.frame(t(score))
+
+Group=ifelse(score[,'Activated CD8 T cell']<=median(score[,'Activated CD8 T cell']), "low", "high")
+Group=as.data.frame(Group)
+d_cbind <- cbind(Group,score)
+write.csv(d_cbind ,'ssGSEA分组信息.csv')
+
+
+```
+
+##estimate评分（基质、免疫、肿瘤纯度）
+```{r} 
+# estimate评分  https://www.jianshu.com/p/0b1de1427458
+#导入数据
+exp=read.table('/Users/louliming/Desktop/原发复发数据/02矩阵合集/公司原始数据count.txt',
+               header = T,sep = '\t')
+exp <- exp %>% distinct(Symbol, .keep_all = T)#去除重复值
+row.names(exp)=exp[,1]
+exp=exp[,-1]
+exp[1:3,1:3]
+
+#R包夹在
+library(utils)
+rforge <- "http://r-forge.r-project.org"
+if(!require("estimate"))install.packages("estimate", repos=rforge, dependencies=TRUE)
+library(estimate)
+#help(package="estimate")
+
+exprSet=exp
+exprSet[1:3,1:3]
+
+#跑算法，不用改
+dat=log2(edgeR::cpm(exprSet)+1)
+library(estimate)
+estimate <- function(dat,pro){
+  input.f=paste0(pro,'_estimate_input.txt')
+  output.f=paste0(pro,'_estimate_gene.gct')
+  output.ds=paste0(pro,'_estimate_score.gct')
+  write.table(dat,file = input.f,sep = '\t',quote = F)
+  library(estimate)
+  filterCommonGenes(input.f=input.f,
+                    output.f=output.f ,
+                    id="GeneSymbol")
+  estimateScore(input.ds = output.f,
+                output.ds=output.ds,
+                platform="illumina")   ## 注意platform
+  scores=read.table(output.ds,skip = 2,header = T)
+  rownames(scores)=scores[,1]
+  scores=t(scores[,3:ncol(scores)])
+  return(scores)
+}
+pro='ACC'
+scores=estimate(dat,pro)
+head(scores)
+
+#计算肿瘤纯度，输出文件
+scores=as.data.frame(scores)
+scores$TumorPurity = cos(0.6049872018+0.0001467884 * scores[,3])
+scores <- rownames_to_column(scores, var = "example")
+write.table(scores,file='estimate评分.txt',quote = F,sep = '\t',row.names = F)
+```
+
+## 生存分析
+###COX
+```{r}
+library(survival)
+pFilter=0.05 #设置筛选p值
+data=experi  #设置计算的矩阵
+
+outTab=data.frame()#设置空数据框
+sigGenes=c('FFStime','R_M')#设置时间和事件
+
+for(gene in colnames(data[,17:ncol(data)])){#把需要做cox的列挑出来（连续变量）
+#cox分析的核心语句，生存+想要分析的列+矩阵数据
+#1：二分类单因素cox，和连续变量的差别在于手动分了
+  group=ifelse(data[,gene]<=median(data[,gene]), "low", "high")
+  cox=coxph(Surv(FFStime,R_M)~group,data=data)
+#2：连续变量单因素cox
+  cox=coxph(Surv(FFStime,R_M)~data[,gene],data=data)#单因素cox
+    
+  coxSummary=summary(cox)
+  coxP=coxSummary$coefficients[,'Pr(>|z|)']
+  
+  if(coxP<pFilter){
+    sigGenes=c(sigGenes,gene)
+    outTab=rbind(outTab,
+                 cbind(gene=gene,
+                       HR=coxSummary$conf.int[,'exp(coef)'],
+                       HR.95L=coxSummary$conf.int[,'lower .95'],
+                       HR.95H=coxSummary$conf.int[,'upper .95'],
+                       pvalue=coxP
+                 ))
+  }
+}
+#保存cox分析结果
+unicox_e=outTab
+save(unicox_e,file='unicox_e_ffs_cover.Rdata')
+```
+
+###KM分析
+```{r}
+library(survival)
+library(survminer)
+library(tidyverse)
+library(readxl)
+
+## ly数据集
+ids <- read_excel("/Users/louliming/Desktop/HSY/metadata_ly.xlsx",sheet = 1, col_names = TRUE)
+rownames(ids) <- ids$cell_type
+
+expr_max_ly1 <- expr_max_ly[,rownames(ids)]
+ids$gene <- as.numeric(t(expr_max_ly1["RNF138",]))
+
+#可调整
+ids_R<-ids[which(ids$response==0),]#临床信息分组
+ids_NR<-ids[which(ids$response==1),]
+
+res.cut <- surv_cutpoint(ids, #数据集
+                         time = "FFS time", #生存状态
+                         event = "FFS", #生存时间
+                         variables = "gene" #需要计算的数据列名
+)
+
+res.cat <- surv_categorize(res.cut)
+fit <- survfit(Surv(`FFS time`, FFS)~gene, data=res.cat)
+ggsurvplot(fit,pval=TRUE)
+
+
+## zl数据集
+idz <- read_excel("/Users/louliming/Desktop/HSY/metadata_zl.xlsx",sheet = 1, col_names = TRUE)
+expr_max_zl1 <- expr_max_zl[, as.character(idz$Sample_description)]
+
+idz$gene <- as.numeric(t(expr_max_zl1["RNF138",]))
+res.cut <- surv_cutpoint(idz, #数据集
+                         time = "PFS", #生存状态
+                         event = "event", #生存时间
+                         variables = "gene" #需要计算的数据列名
+)
+
+res.cat <- surv_categorize(res.cut)
+fit <- survfit(Surv(PFS, event)~gene, data=res.cat)
+ggsurvplot(fit,pval=TRUE)
+```
